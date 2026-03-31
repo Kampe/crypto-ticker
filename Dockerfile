@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM balenalib/raspberry-pi-python:3.11-bullseye-run
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1

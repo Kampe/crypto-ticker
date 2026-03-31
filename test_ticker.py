@@ -295,7 +295,7 @@ class TestTickerIntegration(unittest.TestCase):
         ticker._load_fonts()
         for key in ('symbol', 'price', 'change', 'price_small'):
             self.assertIn(key, ticker._fonts)
-        self.assertTrue(ticker._fonts['symbol']._loaded.endswith('7x13.bdf'))
+        self.assertTrue(ticker._fonts['symbol']._loaded.endswith('spleen-8x16.bdf'))
 
     def test_icon_loading(self):
         ticker, _ = self._make_ticker()

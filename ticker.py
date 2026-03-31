@@ -48,10 +48,10 @@ class Ticker(Frame):
     def _load_fonts(self):
         """Load all fonts once and cache them."""
         font_paths = {
-            'symbol': FONT_DIR / '7x13.bdf',
-            'price': FONT_DIR / '6x12.bdf',
-            'change': FONT_DIR / '6x10.bdf',
-            'price_small': FONT_DIR / '5x8.bdf',
+            'symbol': FONT_DIR / 'spleen-8x16.bdf',
+            'price': FONT_DIR / 'spleen-6x12.bdf',
+            'change': FONT_DIR / 'spleen-5x8.bdf',
+            'price_small': FONT_DIR / 'spleen-5x8.bdf',
         }
         for name, path in font_paths.items():
             font = graphics.Font()
@@ -156,9 +156,9 @@ class Ticker(Frame):
     def get_ticker_canvas(self, asset):
         """Build the ticker canvas given an asset.
 
-        Layout on 64x32 display:
-          Row 0-12:  [icon 12x12] [SYMBOL]        [change%]
-          Row 13-31:              [price]
+        Layout on 64x32 display (Spleen fonts):
+          Row 0-14:  [icon 12x12 @ y=1] [SYMBOL 8x16]   [change% 5x8]
+          Row 16-31:                     [price 6x12]
 
         If an icon exists for the symbol, it's drawn at top-left and the
         symbol text shifts right. Otherwise text-only layout is used.
@@ -195,15 +195,18 @@ class Ticker(Frame):
             else graphics.Color(46, 139, 87)
         )
 
-        # Draw icon if available
+        # Draw icon if available (vertically centered in top half)
         if icon:
-            canvas.SetImage(icon, 0, 0)
+            canvas.SetImage(icon, 0, 1)
 
         # Draw text elements
-        graphics.DrawText(canvas, font_symbol, symbol_x, 12, main_color, asset['symbol'])
+        # Symbol: spleen-8x16, baseline at y=13 (rows ~0-14)
+        graphics.DrawText(canvas, font_symbol, symbol_x, 13, main_color, asset['symbol'])
+        # Price: spleen-6x12, baseline at y=28 (rows ~17-28)
         graphics.DrawText(canvas, font_price, 3, 28, main_color, asset['price'])
+        # Change: spleen-5x8, baseline at y=8 (rows ~1-8, top-right)
         graphics.DrawText(
-            canvas, font_change, change_x, 10, change_color, asset['change_24h']
+            canvas, font_change, change_x, 8, change_color, asset['change_24h']
         )
 
         return canvas
