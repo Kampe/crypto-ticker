@@ -11,11 +11,13 @@ from urllib3.util.retry import Retry
 # Set up the logger -- INFO level to avoid flooding stdout/docker logs
 logger = logging.getLogger('crypto-ticker')
 logger.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.propagate = False
 
 # Shared timeout for all HTTP requests (connect, read) in seconds
 REQUEST_TIMEOUT = (5, 15)
@@ -53,21 +55,46 @@ class PriceAPI:
 
     def __init__(self, symbols, currency='usd'):
         self._symbols = symbols
+        self._requested_assets = self._parse_symbols(symbols)
         self.currency = currency
         self.validate_currency(currency)
         self.session = _build_session()
 
+    def _parse_symbols(self, symbols):
+        requested_assets = []
+        for raw_symbol in symbols.split(','):
+            symbol_value = raw_symbol.strip().lower()
+            if not symbol_value:
+                continue
+
+            symbol, _, coin_id = symbol_value.partition(':')
+            requested_assets.append((symbol, coin_id or None))
+
+        return requested_assets
+
     def get_symbols(self):
         """Get a list of symbols needed"""
-        return [s.split(':')[0] for s in self._symbols.split(',')]
+        return [symbol for symbol, _coin_id in self._requested_assets]
 
     def get_name_for_symbol(self, symbol):
         """Return the name for the symbol, if specified"""
-        for sym in self._symbols.split(','):
-            sym_split = sym.split(':')
-            if symbol == sym_split[0]:
-                return sym_split[1] if len(sym_split) == 2 else None
+        for requested_symbol, coin_id in self._requested_assets:
+            if symbol == requested_symbol:
+                return coin_id
         return None
+
+    def order_price_data(self, price_data):
+        ordered_assets = []
+        assets_by_symbol = {
+            asset['symbol'].lower(): asset for asset in price_data if 'symbol' in asset
+        }
+
+        for symbol in self.get_symbols():
+            asset = assets_by_symbol.get(symbol)
+            if asset is not None:
+                ordered_assets.append(asset)
+
+        return ordered_assets
 
     def fetch_price_data(self):
         """Fetch new price data from the API.
@@ -144,7 +171,7 @@ class CoinMarketCap(PriceAPI):
                 continue
             price_data.append(dict(symbol=symbol, price=price, change_24h=change_24h))
 
-        return price_data
+        return self.order_price_data(price_data)
 
 
 class CoinGecko(PriceAPI):
@@ -179,6 +206,15 @@ class CoinGecko(PriceAPI):
                 symbol_map[coin['id']] = symbol
 
         self.symbol_map = symbol_map
+        resolved_symbols = set(symbol_map.values())
+        missing_symbols = [
+            symbol for symbol in symbols if symbol not in resolved_symbols
+        ]
+        if missing_symbols:
+            logger.warning(
+                'Could not resolve CoinGecko symbols: %s',
+                ', '.join(missing_symbols),
+            )
 
     @property
     def supported_currencies(self):
@@ -231,4 +267,4 @@ class CoinGecko(PriceAPI):
                 )
             )
 
-        return price_data
+        return self.order_price_data(price_data)

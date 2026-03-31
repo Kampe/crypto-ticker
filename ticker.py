@@ -3,6 +3,7 @@
 import gc
 import os
 import time
+from pathlib import Path
 
 from PIL import Image
 
@@ -10,7 +11,9 @@ from frame import Frame
 from rgbmatrix import graphics
 from price_apis import get_api_cls, logger
 
-ICON_DIR = os.path.join(os.path.dirname(__file__), 'icons')
+BASE_DIR = Path(__file__).resolve().parent
+FONT_DIR = BASE_DIR / 'fonts'
+ICON_DIR = BASE_DIR / 'icons'
 ICON_SIZE = 12
 
 
@@ -22,15 +25,19 @@ class Ticker(Frame):
         LED Panel Frame class.
         """
         self._cached_price_data = None
-        self._last_fetch_time = 0
+        self._last_success_time = 0.0
+        self._next_retry_time = 0.0
 
         # Set up the API
         api_cls = get_api_cls(os.environ.get('API', 'coingecko'))
         self.api = api_cls(symbols=self.get_symbols(), currency=self.get_currency())
 
         # Get user settings
-        self.refresh_rate = int(os.environ.get('REFRESH_RATE', 300))  # 300s or 5m
-        self.sleep = int(os.environ.get('SLEEP', 3))  # 3s
+        self.refresh_rate = self.get_positive_int_setting('REFRESH_RATE', 300)
+        self.sleep = self.get_positive_int_setting('SLEEP', 3)
+        self.retry_delay = self.get_positive_int_setting(
+            'RETRY_DELAY', min(30, self.refresh_rate)
+        )
 
         # Pre-loaded at run() time after matrix is initialized
         self._fonts = {}
@@ -41,34 +48,61 @@ class Ticker(Frame):
     def _load_fonts(self):
         """Load all fonts once and cache them."""
         font_paths = {
-            'symbol': 'fonts/7x13.bdf',
-            'price': 'fonts/6x12.bdf',
-            'change': 'fonts/6x10.bdf',
-            'price_small': 'fonts/5x8.bdf',
+            'symbol': FONT_DIR / '7x13.bdf',
+            'price': FONT_DIR / '6x12.bdf',
+            'change': FONT_DIR / '6x10.bdf',
+            'price_small': FONT_DIR / '5x8.bdf',
         }
         for name, path in font_paths.items():
             font = graphics.Font()
-            font.LoadFont(path)
+            font.LoadFont(str(path))
             self._fonts[name] = font
 
     def _load_icons(self):
         """Load all available crypto icons once and cache as PIL images."""
-        if not os.path.isdir(ICON_DIR):
+        if not ICON_DIR.is_dir():
             return
-        for filename in os.listdir(ICON_DIR):
-            if not filename.endswith('.png'):
+        for path in sorted(ICON_DIR.iterdir()):
+            if path.suffix.lower() != '.png':
                 continue
-            symbol = filename[:-4].lower()
-            path = os.path.join(ICON_DIR, filename)
+            symbol = path.stem.lower()
             try:
-                img = Image.open(path).convert('RGB')
-                # Ensure icon fits the display constraints
-                if img.width > ICON_SIZE or img.height > ICON_SIZE:
-                    img = img.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
-                self._icons[symbol] = img
+                with Image.open(path) as source_image:
+                    icon = source_image.convert('RGB')
+
+                if icon.width > ICON_SIZE or icon.height > ICON_SIZE:
+                    icon = icon.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
+
+                self._icons[symbol] = icon
                 logger.info(f'Loaded icon for {symbol}')
             except Exception as e:
-                logger.warning(f'Failed to load icon {filename}: {e}')
+                logger.warning(f'Failed to load icon {path.name}: {e}')
+
+    def get_positive_int_setting(self, setting_name, default_value):
+        raw_value = os.environ.get(setting_name)
+        if raw_value in (None, ''):
+            return default_value
+
+        try:
+            parsed_value = int(raw_value)
+        except ValueError:
+            logger.warning(
+                'Invalid %s=%r. Falling back to %s.',
+                setting_name,
+                raw_value,
+                default_value,
+            )
+            return default_value
+
+        if parsed_value < 1:
+            logger.warning(
+                '%s must be greater than 0. Falling back to %s.',
+                setting_name,
+                default_value,
+            )
+            return default_value
+
+        return parsed_value
 
     def get_symbols(self):
         """Get the symbols to include"""
@@ -91,20 +125,31 @@ class Ticker(Frame):
         Returns cached data unless the cache is stale per REFRESH_RATE.
         On fetch failure, returns stale cache rather than None.
         """
-        cache_is_stale = (time.time() - self._last_fetch_time) > self.refresh_rate
+        now = time.monotonic()
+        cache_is_stale = (
+            not self._cached_price_data
+            or (now - self._last_success_time) > self.refresh_rate
+        )
 
         if self._cached_price_data and not cache_is_stale:
             return self._cached_price_data
 
+        if now < self._next_retry_time:
+            return self._cached_price_data
+
         price_data = self.api.fetch_price_data()
-        self._last_fetch_time = time.time()
+        fetch_completed_at = time.monotonic()
 
         if price_data:
             self._cached_price_data = price_data
+            self._last_success_time = fetch_completed_at
+            self._next_retry_time = 0.0
         elif self._cached_price_data:
             logger.warning('Fetch failed, using stale cached data.')
+            self._next_retry_time = fetch_completed_at + self.retry_delay
         else:
             logger.error('No price data available.')
+            self._next_retry_time = fetch_completed_at + self.retry_delay
 
         return self._cached_price_data
 
@@ -182,7 +227,6 @@ class Ticker(Frame):
             data = self.price_data
             if not data:
                 yield None
-                time.sleep(self.refresh_rate)
                 continue
 
             for asset in data:
