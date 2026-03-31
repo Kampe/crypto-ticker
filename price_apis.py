@@ -1,26 +1,45 @@
 import json
 import logging
 import os
-import requests
 import sys
 
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-# Set up the logger
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+
+# Set up the logger -- INFO level to avoid flooding stdout/docker logs
+logger = logging.getLogger('crypto-ticker')
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+# Shared timeout for all HTTP requests (connect, read) in seconds
+REQUEST_TIMEOUT = (5, 15)
 
 API_CLASS_MAP = {'coinmarketcap': 'CoinMarketCap', 'coingecko': 'CoinGecko'}
 
 
+def _build_session():
+    """Build a requests Session with retry logic and connection pooling."""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_maxsize=2)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
 def get_api_cls(api_name):
     """
-
     Args:
         api_name (str): The name of the API to use.
     """
@@ -36,6 +55,7 @@ class PriceAPI:
         self._symbols = symbols
         self.currency = currency
         self.validate_currency(currency)
+        self.session = _build_session()
 
     def get_symbols(self):
         """Get a list of symbols needed"""
@@ -64,7 +84,6 @@ class PriceAPI:
         raise NotImplementedError
 
     def validate_currency(self, currency):
-        supported = self.supported_currencies
         if currency not in self.supported_currencies:
             raise ValueError(
                 f"CURRENCY={currency} is not supported. Options are: {self.supported_currencies}."
@@ -78,13 +97,12 @@ class CoinMarketCap(PriceAPI):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Confirm an API key is present
         try:
             self.api_key = os.environ['CMC_API_KEY']
         except KeyError:
             raise RuntimeError('CMC_API_KEY environment variable must be set.')
 
-        self.env = (
+        self.api_url = (
             self.SANDBOX_API
             if os.environ.get('SANDBOX', '') == 'true'
             else self.PRODUCTION_API
@@ -96,27 +114,33 @@ class CoinMarketCap(PriceAPI):
 
     def fetch_price_data(self):
         """Fetch new price data from the CoinMarketCap API"""
-        logger.info('`fetch_price_data` called.')
+        logger.info('Fetching price data from CoinMarketCap.')
 
-        response = requests.get(
-            '{0}/v1/cryptocurrency/quotes/latest'.format(self.api),
-            params={'symbol': self.get_symbols()},
-            headers={'X-CMC_PRO_API_KEY': self.api_key},
-        )
-        price_data = []
+        try:
+            response = self.session.get(
+                f'{self.api_url}/v1/cryptocurrency/quotes/latest',
+                params={'symbol': ','.join(self.get_symbols())},
+                headers={'X-CMC_PRO_API_KEY': self.api_key},
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f'CoinMarketCap API request failed: {e}')
+            return None
 
         try:
             items = response.json().get('data', {}).items()
-        except json.JSONDecodeError:
-            logger.error(f'JSON decode error: {response.text}')
-            return
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f'JSON decode error: {e}')
+            return None
 
+        price_data = []
         for symbol, data in items:
             try:
                 price = f"${data['quote']['USD']['price']:,.2f}"
                 change_24h = f"{data['quote']['USD']['percent_change_24h']:.1f}%"
-            except KeyError:
-                # TODO: Add error logging
+            except (KeyError, TypeError) as e:
+                logger.warning(f'Incomplete data for {symbol}: {e}')
                 continue
             price_data.append(dict(symbol=symbol, price=price, change_24h=change_24h))
 
@@ -128,19 +152,26 @@ class CoinGecko(PriceAPI):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.symbol_map = {}
+        self._fetch_coin_list()
 
-        # Fetch the coin list and cache data for our symbols
-        response = requests.get(f'{self.API}/coins/list')
+    def _fetch_coin_list(self):
+        """Fetch the CoinGecko coin list and build a symbol -> id mapping."""
+        try:
+            response = self.session.get(
+                f'{self.API}/coins/list', timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            coins = response.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.error(f'Failed to fetch CoinGecko coin list: {e}')
+            return
 
-        # The CoinGecko API uses ids to fetch price data
+        symbols = self.get_symbols()
         symbol_map = {}
 
-        # Symbols is the list of symbols we want to fetch data for
-        symbols = self.get_symbols()
-
-        for coin in response.json():
+        for coin in coins:
             symbol = coin['symbol']
-            # If we specified a name for our symbol, check for it
             name = self.get_name_for_symbol(symbol)
             if name is not None and name != coin['id']:
                 continue
@@ -155,37 +186,48 @@ class CoinGecko(PriceAPI):
 
     def fetch_price_data(self):
         """Fetch new price data from the CoinGecko API"""
-        logger.info('`fetch_price_data` called.')
-        logger.info(f'Fetching data for {self.symbol_map}.')
+        if not self.symbol_map:
+            logger.warning('No symbol map available, retrying coin list fetch.')
+            self._fetch_coin_list()
+            if not self.symbol_map:
+                return None
 
-        # Make the API request
-        response = requests.get(
-            f'{self.API}/simple/price',
-            params={
-                'ids': ','.join(list(self.symbol_map.keys())),
-                'vs_currencies': self.currency,
-                'include_24hr_change': 'true',
-            },
-        )
-        price_data = []
+        logger.info(f'Fetching prices for: {list(self.symbol_map.values())}')
 
-        logger.info(response.json())
+        try:
+            response = self.session.get(
+                f'{self.API}/simple/price',
+                params={
+                    'ids': ','.join(self.symbol_map.keys()),
+                    'vs_currencies': self.currency,
+                    'include_24hr_change': 'true',
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.error(f'CoinGecko API request failed: {e}')
+            return None
 
         cur = self.currency
         cur_change = f"{cur}_24h_change"
-        cur_symbol = "€" if cur == "eur" else "$"
+        cur_symbol = "\u20ac" if cur == "eur" else "$"
 
-        for coin_id, data in response.json().items():
+        price_data = []
+        for coin_id, coin_data in data.items():
             try:
-                price = f"{cur_symbol}{data[cur]:,.2f}"
-                change_24h = f"{data[cur_change]:.1f}%"
+                price = f"{cur_symbol}{coin_data[cur]:,.2f}"
+                change_24h = f"{coin_data[cur_change]:.1f}%"
             except (KeyError, TypeError):
-                logging.warn(f'api data not complete for {0}: {1}', coin_id, data)
+                logger.warning(f'Incomplete data for {coin_id}: {coin_data}')
                 continue
 
             price_data.append(
                 dict(
-                    symbol=self.symbol_map[coin_id], price=price, change_24h=change_24h
+                    symbol=self.symbol_map.get(coin_id, coin_id),
+                    price=price,
+                    change_24h=change_24h,
                 )
             )
 

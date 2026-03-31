@@ -12,3 +12,10 @@ services:
       - ./settings.env
     volumes:
       - .:/code
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    tmpfs:
+      - /tmp:size=10M

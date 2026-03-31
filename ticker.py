@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 
-import itertools
+import gc
 import os
 import time
+
+from PIL import Image
 
 from frame import Frame
 from rgbmatrix import graphics
 from price_apis import get_api_cls, logger
+
+ICON_DIR = os.path.join(os.path.dirname(__file__), 'icons')
+ICON_SIZE = 12
 
 
 class Ticker(Frame):
@@ -16,7 +21,6 @@ class Ticker(Frame):
         Gather the users settings from environment variables, then initialize the
         LED Panel Frame class.
         """
-        # initialize variables used for price data cache
         self._cached_price_data = None
         self._last_fetch_time = 0
 
@@ -28,7 +32,43 @@ class Ticker(Frame):
         self.refresh_rate = int(os.environ.get('REFRESH_RATE', 300))  # 300s or 5m
         self.sleep = int(os.environ.get('SLEEP', 3))  # 3s
 
+        # Pre-loaded at run() time after matrix is initialized
+        self._fonts = {}
+        self._icons = {}
+
         super().__init__(*args, **kwargs)
+
+    def _load_fonts(self):
+        """Load all fonts once and cache them."""
+        font_paths = {
+            'symbol': 'fonts/7x13.bdf',
+            'price': 'fonts/6x12.bdf',
+            'change': 'fonts/6x10.bdf',
+            'price_small': 'fonts/5x8.bdf',
+        }
+        for name, path in font_paths.items():
+            font = graphics.Font()
+            font.LoadFont(path)
+            self._fonts[name] = font
+
+    def _load_icons(self):
+        """Load all available crypto icons once and cache as PIL images."""
+        if not os.path.isdir(ICON_DIR):
+            return
+        for filename in os.listdir(ICON_DIR):
+            if not filename.endswith('.png'):
+                continue
+            symbol = filename[:-4].lower()
+            path = os.path.join(ICON_DIR, filename)
+            try:
+                img = Image.open(path).convert('RGB')
+                # Ensure icon fits the display constraints
+                if img.width > ICON_SIZE or img.height > ICON_SIZE:
+                    img = img.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
+                self._icons[symbol] = img
+                logger.info(f'Loaded icon for {symbol}')
+            except Exception as e:
+                logger.warning(f'Failed to load icon {filename}: {e}')
 
     def get_symbols(self):
         """Get the symbols to include"""
@@ -46,57 +86,63 @@ class Ticker(Frame):
 
     @property
     def price_data(self):
-        """Price data for the requested assets, update automatically.
+        """Price data for the requested assets, updated automatically.
 
-        This function will return a cached copy of the asset prices unless its time to
-        fetch fresh data. We'll use the REFRESH_RATE environment variable to determine
-        if it's time to refresh data.
-
-        Returns:
-            Updated price data. See self.api.fetch_price_data.
+        Returns cached data unless the cache is stale per REFRESH_RATE.
+        On fetch failure, returns stale cache rather than None.
         """
-        # Determine if the cache is stale
         cache_is_stale = (time.time() - self._last_fetch_time) > self.refresh_rate
 
-        # See if we should return the cached price data
         if self._cached_price_data and not cache_is_stale:
-            logger.info('Using cached price data.')
             return self._cached_price_data
 
-        # Otherwise fetch new data and set the _last_fetch_time
         price_data = self.api.fetch_price_data()
         self._last_fetch_time = time.time()
-        self._cached_price_data = price_data
 
-        return price_data
+        if price_data:
+            self._cached_price_data = price_data
+        elif self._cached_price_data:
+            logger.warning('Fetch failed, using stale cached data.')
+        else:
+            logger.error('No price data available.')
+
+        return self._cached_price_data
 
     def get_ticker_canvas(self, asset):
-        """Build the ticker canvas given an asset
+        """Build the ticker canvas given an asset.
 
-        Returns:
-            A canvas object with the symbol, change, and price drawn.
+        Layout on 64x32 display:
+          Row 0-12:  [icon 12x12] [SYMBOL]        [change%]
+          Row 13-31:              [price]
+
+        If an icon exists for the symbol, it's drawn at top-left and the
+        symbol text shifts right. Otherwise text-only layout is used.
         """
-        # Generate a fresh canvas
         canvas = self.matrix.CreateFrameCanvas()
         canvas.Clear()
 
-        # Create fonts for displaying prices
-        font_symbol = graphics.Font()
-        font_symbol.LoadFont('fonts/7x13.bdf')
+        font_symbol = self._fonts['symbol']
+        font_change = self._fonts['change']
+        font_price = (
+            self._fonts['price_small']
+            if len(asset['price']) > 10
+            else self._fonts['price']
+        )
 
-        font_price = graphics.Font()
-        font_price.LoadFont('fonts/6x12.bdf')
+        # Check for icon
+        symbol_lower = asset['symbol'].lower()
+        icon = self._icons.get(symbol_lower)
 
-        font_change = graphics.Font()
-        font_change.LoadFont('fonts/6x10.bdf')
+        # X offset for symbol text depends on whether we have an icon
+        symbol_x = (ICON_SIZE + 2) if icon else 3
 
-        # To right align, we have to calculate the width of the text
+        # Right-align the change percentage
         change_width = sum(
             [font_change.CharacterWidth(ord(c)) for c in asset['change_24h']]
         )
         change_x = 62 - change_width
 
-        # Get colors
+        # Colors
         main_color = graphics.Color(255, 255, 0)
         change_color = (
             graphics.Color(194, 24, 7)
@@ -104,12 +150,12 @@ class Ticker(Frame):
             else graphics.Color(46, 139, 87)
         )
 
-        # Load a smaller font to andle 6-figure asset prices
-        if len(asset['price']) > 10:
-            font_price.LoadFont('fonts/5x8.bdf')
+        # Draw icon if available
+        if icon:
+            canvas.SetImage(icon, 0, 0)
 
-        # Draw the elements on the canvas
-        graphics.DrawText(canvas, font_symbol, 3, 12, main_color, asset['symbol'])
+        # Draw text elements
+        graphics.DrawText(canvas, font_symbol, symbol_x, 12, main_color, asset['symbol'])
         graphics.DrawText(canvas, font_price, 3, 28, main_color, asset['price'])
         graphics.DrawText(
             canvas, font_change, change_x, 10, change_color, asset['change_24h']
@@ -121,8 +167,7 @@ class Ticker(Frame):
         """Build an error canvas to show on errors"""
         canvas = self.matrix.CreateFrameCanvas()
         canvas.Clear()
-        font = graphics.Font()
-        font.LoadFont('../rpi-rgb-led-matrix/fonts/7x13.bdf')
+        font = self._fonts['symbol']
         color = graphics.Color(194, 24, 7)
         graphics.DrawText(canvas, font, 15, 20, color, 'ERROR')
         return canvas
@@ -130,30 +175,51 @@ class Ticker(Frame):
     def get_assets(self):
         """Generator method that yields assets infinitely.
 
-        Since it uses `self.price_data` it will always return the latest prices,
-        respecting the REFRESH_RATE.
+        Handles empty/None price data gracefully by yielding None and
+        waiting before retrying, rather than spinning or crashing.
         """
-        # The size of the price_data list should not change, even when updated
-        price_data_length = len(self.price_data)
-
-        for index in itertools.cycle(range(price_data_length)):
-            try:
-                yield self.price_data[index]
-            except IndexError:
+        while True:
+            data = self.price_data
+            if not data:
                 yield None
+                time.sleep(self.refresh_rate)
+                continue
+
+            for asset in data:
+                yield asset
 
     def run(self):
         """Run the loop and display ticker prices.
 
-        This is called by process.
+        Catches all exceptions to prevent the display from going blank.
+        Runs periodic garbage collection to keep memory stable on Pi W.
         """
+        self._load_fonts()
+        self._load_icons()
+
+        frame_count = 0
         for asset in self.get_assets():
-            if asset:
-                canvas = self.get_ticker_canvas(asset)
-            else:
-                canvas = self.get_error_canvas()
-            self.matrix.SwapOnVSync(canvas)
+            try:
+                if asset:
+                    canvas = self.get_ticker_canvas(asset)
+                else:
+                    canvas = self.get_error_canvas()
+                self.matrix.SwapOnVSync(canvas)
+            except Exception as e:
+                logger.error(f'Error rendering frame: {e}')
+                try:
+                    canvas = self.get_error_canvas()
+                    self.matrix.SwapOnVSync(canvas)
+                except Exception:
+                    pass
+
             time.sleep(self.sleep)
+
+            # Periodic GC to prevent memory creep on constrained Pi W
+            frame_count += 1
+            if frame_count % 100 == 0:
+                gc.collect()
+                frame_count = 0
 
 
 if __name__ == '__main__':

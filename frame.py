@@ -1,7 +1,8 @@
-import time
 import sys
+import time
 
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
+from price_apis import logger
 
 
 class Frame:
@@ -18,7 +19,7 @@ class Frame:
         self.args['led_pwm_lsb_nanoseconds'] = kwargs.get('led_pwm_lsb_nanoseconds', 130)
         self.args['led_show_refresh'] = kwargs.get('led_show_refresh', False)
         self.args['led_slowdown_gpio'] = kwargs.get('led_slowdown_gpio', 1)
-        self.args['led_no_hardware_pulse'] = kwargs.get('led_no_hardware_pulse', False)  # double check
+        self.args['led_no_hardware_pulse'] = kwargs.get('led_no_hardware_pulse', False)
         self.args['led_rgb_sequence'] = kwargs.get('led_rgb_sequence', 'RGB')
         self.args['led_pixel_mapper'] = kwargs.get('led_pixel_mapper', '')
         self.args['led_row_addr_type'] = kwargs.get('led_row_addr_type', 0)
@@ -62,10 +63,13 @@ class Frame:
         self.matrix = RGBMatrix(options=options)
 
         try:
-            print('Press CTRL-C to stops')
+            logger.info('Ticker started. Press CTRL-C to stop.')
             self.run()
         except KeyboardInterrupt:
-            print('Exiting\n')
+            logger.info('Shutting down.')
             sys.exit(0)
+        except Exception as e:
+            logger.error(f'Fatal error: {e}')
+            sys.exit(1)
 
         return True
