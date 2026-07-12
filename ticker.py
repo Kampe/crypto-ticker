@@ -258,19 +258,17 @@ class Ticker(Frame):
         """Draw an unlit background to minimize LED scan artifacts."""
         return Image.new('RGB', (self.width, self.height), (0, 0, 0))
 
-    def _draw_icon_badge(self, image, asset, frame_index=0):
+    def _draw_icon(self, image, asset, frame_index=0):
         draw = ImageDraw.Draw(image)
         symbol = asset['symbol'].lower()
-        primary, secondary = self._asset_colors(symbol)
-        draw.rectangle((0, 0, 14, 14), outline=dim(secondary, 0.65), fill=dim(primary, 0.46))
-        draw.rectangle((1, 1, 13, 13), outline=dim(primary, 1.2))
+        primary, _secondary = self._asset_colors(symbol)
 
         icon = self._icons.get(symbol)
         if icon:
             image.paste(icon, (1, 1), icon if icon.mode == 'RGBA' else None)
         else:
             # Small monogram fallback; real symbol text is drawn with rgbmatrix later.
-            draw.rectangle((4, 4, 10, 10), outline=dim(secondary, 0.9), fill=dim(primary, 0.45))
+            draw.rectangle((4, 4, 10, 10), outline=dim(primary, 0.65))
 
     def _draw_sparkline(self, image, asset, frame_index=0):
         symbol = asset['symbol'].lower()
@@ -352,7 +350,7 @@ class Ticker(Frame):
     def get_ticker_canvas(self, asset, frame_index=0):
         image = self._background(asset, frame_index)
         self._draw_sparkline(image, asset, frame_index)
-        self._draw_icon_badge(image, asset, frame_index)
+        self._draw_icon(image, asset, frame_index)
         self._draw_market_meter(image, asset)
         canvas = self._base_canvas_from_image(image)
 
