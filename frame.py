@@ -36,18 +36,20 @@ class Frame:
         self.args['led_chain'] = kwargs.get('led_chain', 1)
         self.args['led_parallel'] = kwargs.get('led_parallel', 1)
         self.args['led_pwm_bits'] = kwargs.get(
-            'led_pwm_bits', _get_int_setting('LED_PWM_BITS', 7)
+            'led_pwm_bits', _get_int_setting('LED_PWM_BITS', 5)
         )
         self.args['led_brightness'] = kwargs.get(
-            'led_brightness', _get_int_setting('LED_BRIGHTNESS', 60)
+            'led_brightness', _get_int_setting('LED_BRIGHTNESS', 45)
         )
         self.args['led_gpio_mapping'] = kwargs.get('led_gpio_mapping', 'adafruit-hat')
         self.args['led_scan_mode'] = kwargs.get('led_scan_mode', 1)
         self.args['led_pwm_lsb_nanoseconds'] = kwargs.get(
             'led_pwm_lsb_nanoseconds',
-            _get_int_setting('LED_PWM_LSB_NANOSECONDS', 100),
+            _get_int_setting('LED_PWM_LSB_NANOSECONDS', 80),
         )
-        self.args['led_show_refresh'] = kwargs.get('led_show_refresh', False)
+        self.args['led_show_refresh'] = kwargs.get(
+            'led_show_refresh', _get_bool_setting('LED_SHOW_REFRESH', False)
+        )
         self.args['led_slowdown_gpio'] = kwargs.get(
             'led_slowdown_gpio', _get_int_setting('LED_SLOWDOWN_GPIO', 1)
         )

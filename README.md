@@ -27,10 +27,11 @@ You can customize the application by adding any of the following settings to you
 | RETRY_DELAY | 30 or REFRESH_RATE if lower | How long to wait before retrying a failed refresh while stale data remains on screen. |
 | COINGECKO\_API\_KEY | | Optional CoinGecko API key. Recommended for the 24h market chart requests. |
 | COINGECKO\_API\_TIER | demo | CoinGecko key type. Use "demo" for `x-cg-demo-api-key` or "pro" for `x-cg-pro-api-key`. |
-| LED\_BRIGHTNESS | 60 | Matrix brightness. Lower values reduce visible scan flicker and glare. |
-| LED\_PWM\_BITS | 7 | Matrix PWM bit depth. Lower values improve refresh rate on Pi Zero hardware. |
-| LED\_PWM\_LSB\_NANOSECONDS | 100 | Matrix PWM timing. Lower values can reduce flicker if the panel remains stable. |
+| LED\_BRIGHTNESS | 45 | Matrix brightness. Lower values reduce visible scan flicker and glare. |
+| LED\_PWM\_BITS | 5 | Matrix PWM bit depth. Lower values improve refresh rate on Pi Zero hardware. |
+| LED\_PWM\_LSB\_NANOSECONDS | 80 | Matrix PWM timing. Lower values can reduce flicker if the panel remains stable. |
 | LED\_SLOWDOWN\_GPIO | 1 | RGB matrix GPIO slowdown setting. Increase only if the panel shows corrupted pixels. |
+| LED\_SHOW\_REFRESH | false | Print matrix refresh diagnostics for short troubleshooting runs. Leave off for normal use. |
 | CMC\_API\_KEY | | The CoinMarketCap API key, required if you specified API=coinmarketcap. |
 | SANDBOX | | Used for CoinMarketCap only. Set SANDBOX=false if you're developing and want to use the sandbox API. |
 

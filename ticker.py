@@ -18,6 +18,7 @@ from price_apis import REQUEST_TIMEOUT, get_api_cls, logger
 BASE_DIR = Path(__file__).resolve().parent
 FONT_DIR = BASE_DIR / 'fonts'
 ICON_DIR = BASE_DIR / 'icons'
+REMOTE_ICON_DIR = Path(os.environ.get('ICON_CACHE_DIR', '/tmp/crypto-ticker-icons'))
 ICON_SIZE = 12
 HISTORY_POINTS = 18
 
@@ -91,9 +92,13 @@ class Ticker(Frame):
 
     def _load_icons(self):
         """Load all available crypto icons once and cache as PIL images."""
-        if not ICON_DIR.is_dir():
+        for icon_dir in (ICON_DIR, REMOTE_ICON_DIR):
+            self._load_icons_from_dir(icon_dir)
+
+    def _load_icons_from_dir(self, icon_dir):
+        if not icon_dir.is_dir():
             return
-        for path in sorted(ICON_DIR.iterdir()):
+        for path in sorted(icon_dir.iterdir()):
             if path.suffix.lower() != '.png':
                 continue
             symbol = path.stem.lower()
@@ -200,7 +205,7 @@ class Ticker(Frame):
             return
         self._remote_icon_attempted.add(symbol)
 
-        icon_path = ICON_DIR / f'{symbol}.png'
+        icon_path = REMOTE_ICON_DIR / f'{symbol}.png'
 
         try:
             response = requests.get(image_url, timeout=REQUEST_TIMEOUT)
@@ -214,7 +219,7 @@ class Ticker(Frame):
                     logger.info(f'Loaded remote icon for {symbol} without disk cache')
                     return
 
-                ICON_DIR.mkdir(parents=True, exist_ok=True)
+                REMOTE_ICON_DIR.mkdir(parents=True, exist_ok=True)
                 icon.save(icon_path)
                 logger.info(f'Cached icon for {symbol}')
         except Exception as e:

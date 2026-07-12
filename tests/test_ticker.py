@@ -80,7 +80,7 @@ class TickerTests(unittest.TestCase):
         response.raise_for_status.return_value = None
 
         with tempfile.TemporaryDirectory() as icon_dir:
-            with patch.object(ticker, 'ICON_DIR', ticker.Path(icon_dir)):
+            with patch.object(ticker, 'REMOTE_ICON_DIR', ticker.Path(icon_dir)):
                 with patch.object(
                     ticker.requests, 'get', return_value=response, create=True
                 ) as get:
