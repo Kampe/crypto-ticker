@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import gc
-import math
 import os
 import re
 import time
@@ -64,7 +63,6 @@ class Ticker(Frame):
         self.retry_delay = self.get_positive_int_setting(
             'RETRY_DELAY', min(30, self.refresh_rate)
         )
-        self.animation_fps = self.get_positive_int_setting('ANIMATION_FPS', 8)
         self.overview_every = self.get_positive_int_setting('OVERVIEW_EVERY', 1)
 
         self._fonts = {}
@@ -216,8 +214,8 @@ class Ticker(Frame):
             str(text),
         )
 
-    def _background(self, asset, frame_index):
-        """Draw a low-cost animated background as a PIL image."""
+    def _background(self, asset, frame_index=0):
+        """Draw a calm low-cost background as a PIL image."""
         symbol = asset['symbol'].lower() if asset else 'market'
         primary, secondary = self._asset_colors(symbol)
         image = Image.new('RGB', (self.width, self.height), (1, 3, 8))
@@ -225,24 +223,17 @@ class Ticker(Frame):
 
         for y in range(self.height):
             t = y / float(max(1, self.height - 1))
-            wave = (math.sin((frame_index * 0.31) + (y * 0.42)) + 1.0) / 2.0
-            color = mix(dim(primary, 0.18), dim(secondary, 0.26), (t + wave) / 2.0)
+            color = mix(dim(primary, 0.11), dim(secondary, 0.18), t)
             draw.line((0, y, self.width, y), fill=color)
 
-        sweep_x = (frame_index * 5) % (self.width + 16) - 8
-        draw.rectangle((sweep_x, 0, sweep_x + 2, self.height), fill=dim(secondary, 0.55))
-        draw.line((0, self.height - 1, self.width, self.height - 1), fill=dim(secondary, 0.35))
-        for x in range((frame_index % 8) - 8, self.width, 8):
-            draw.point((x, 0), fill=dim(primary, 0.75))
-            draw.point((x + 3, self.height - 2), fill=dim(secondary, 0.65))
+        draw.line((0, self.height - 1, self.width, self.height - 1), fill=dim(secondary, 0.18))
         return image
 
-    def _draw_icon_badge(self, image, asset, frame_index):
+    def _draw_icon_badge(self, image, asset, frame_index=0):
         draw = ImageDraw.Draw(image)
         symbol = asset['symbol'].lower()
         primary, secondary = self._asset_colors(symbol)
-        pulse = 0.55 + 0.25 * math.sin(frame_index * 0.45)
-        draw.rectangle((0, 0, 14, 14), outline=dim(secondary, 0.85), fill=dim(primary, pulse))
+        draw.rectangle((0, 0, 14, 14), outline=dim(secondary, 0.65), fill=dim(primary, 0.46))
         draw.rectangle((1, 1, 13, 13), outline=dim(primary, 1.2))
 
         icon = self._icons.get(symbol)
@@ -252,12 +243,11 @@ class Ticker(Frame):
             # Small monogram fallback; real symbol text is drawn with rgbmatrix later.
             draw.rectangle((4, 4, 10, 10), outline=dim(secondary, 0.9), fill=dim(primary, 0.45))
 
-    def _draw_sparkline(self, image, asset, frame_index):
+    def _draw_sparkline(self, image, asset, frame_index=0):
         symbol = asset['symbol'].lower()
         values = list(self._price_history[symbol])
         if len(values) < 2:
-            value = asset.get('price_value') or self._parse_price(asset.get('price', '')) or 1.0
-            values = [value * 0.995, value, value * 1.003]
+            values = []
 
         primary, secondary = self._asset_colors(symbol)
         draw = ImageDraw.Draw(image)
@@ -265,9 +255,17 @@ class Ticker(Frame):
         top = 15
         right = self.width - 2
         bottom = self.height - 3
+        if len(values) < 2:
+            y = (top + bottom) // 2
+            draw.line((left, y, right, y), fill=dim(secondary, 0.38))
+            draw.point((right, y), fill=dim(secondary, 0.85))
+            return
+
         low = min(values)
         high = max(values)
         span = high - low or max(high, 1.0) * 0.001
+        line_color = (34, 255, 136) if values[-1] >= values[0] else (255, 62, 105)
+        shadow_color = dim(line_color, 0.25)
 
         points = []
         for idx, value in enumerate(values[-HISTORY_POINTS:]):
@@ -276,15 +274,13 @@ class Ticker(Frame):
             y = int(bottom - ((value - low) / span) * (bottom - top))
             points.append((x, y))
 
-        for offset, color in ((1, dim(primary, 0.28)), (0, secondary)):
+        for offset, color in ((1, shadow_color), (0, line_color)):
             shifted = [(x, y + offset) for x, y in points]
             if len(shifted) > 1:
                 draw.line(shifted, fill=color)
 
         last_x, last_y = points[-1]
-        blink = frame_index % 8 < 4
-        if blink:
-            draw.rectangle((last_x - 1, last_y - 1, last_x + 1, last_y + 1), fill=(255, 255, 255))
+        draw.point((last_x, last_y), fill=mix(line_color, (255, 255, 255), 0.35))
 
     def _draw_market_meter(self, image, asset):
         draw = ImageDraw.Draw(image)
@@ -388,25 +384,16 @@ class Ticker(Frame):
             self._canvas = swapped_canvas
 
     def _show_asset(self, asset):
-        frames = max(1, int(self.sleep * self.animation_fps))
-        delay = 1.0 / float(self.animation_fps)
-        for frame_index in range(frames):
-            self._show_canvas(self.get_ticker_canvas(asset, frame_index))
-            time.sleep(delay)
+        self._show_canvas(self.get_ticker_canvas(asset, 0))
+        time.sleep(self.sleep)
 
     def _show_overview(self, price_data):
-        frames = max(1, int(min(2, self.sleep) * self.animation_fps))
-        delay = 1.0 / float(self.animation_fps)
-        for frame_index in range(frames):
-            self._show_canvas(self.get_overview_canvas(price_data, frame_index))
-            time.sleep(delay)
+        self._show_canvas(self.get_overview_canvas(price_data, 0))
+        time.sleep(min(2, self.sleep))
 
     def _show_error(self):
-        frames = max(1, int(self.sleep * self.animation_fps))
-        delay = 1.0 / float(self.animation_fps)
-        for frame_index in range(frames):
-            self._show_canvas(self.get_error_canvas(frame_index))
-            time.sleep(delay)
+        self._show_canvas(self.get_error_canvas(0))
+        time.sleep(self.sleep)
 
     def get_assets(self):
         """Yield assets indefinitely for compatibility with older tests/tools."""
@@ -420,7 +407,7 @@ class Ticker(Frame):
                 yield asset
 
     def run(self):
-        """Run the animated ticker loop with stale-data resilience."""
+        """Run the ticker loop with stale-data resilience."""
         self._load_fonts()
         self._load_icons()
 
