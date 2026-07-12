@@ -44,3 +44,15 @@ SYMBOLS=btc,eth,uni:uniswap
 
 The second value (uniswap) corresponds to the ID of the currency in the API. This is currently only supported for the CoinGecko API. You can
 find the CoinGecko ID for a token in the URL. E.g. https://www.coingecko.com/en/coins/uniswap.
+
+## Native systemd service
+
+For Raspberry Pi Zero W installs, running the ticker natively under systemd is more reliable than building Docker images on-device.
+
+```bash
+sudo cp systemd/crypto-ticker.service /etc/systemd/system/crypto-ticker.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now crypto-ticker.service
+```
+
+The service starts on boot, restarts on failure, and recycles every 12 hours to avoid long-running memory creep on constrained Pi Zero hardware.

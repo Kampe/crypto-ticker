@@ -28,12 +28,16 @@ API_CLASS_MAP = {'coinmarketcap': 'CoinMarketCap', 'coingecko': 'CoinGecko'}
 def _build_session():
     """Build a requests Session with retry logic and connection pooling."""
     session = requests.Session()
-    retries = Retry(
+    retry_kwargs = dict(
         total=3,
         backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"],
     )
+    try:
+        retries = Retry(allowed_methods=["GET"], **retry_kwargs)
+    except TypeError:
+        # Buster's urllib3 uses the old option name.
+        retries = Retry(method_whitelist=["GET"], **retry_kwargs)
     adapter = HTTPAdapter(max_retries=retries, pool_maxsize=2)
     session.mount("https://", adapter)
     session.mount("http://", adapter)

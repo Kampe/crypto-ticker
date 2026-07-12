@@ -6,8 +6,9 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /code
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential git make python3-dev && \
+RUN printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4
+RUN apt-get -o Acquire::ForceIPv4=true update && \
+    apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends build-essential git make python3-dev && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 RUN cd /opt && \
