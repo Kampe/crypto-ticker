@@ -206,6 +206,8 @@ class Ticker(Frame):
         self._remote_icon_attempted.add(symbol)
 
         icon_path = REMOTE_ICON_DIR / f'{symbol}.png'
+        if icon_path.exists():
+            return
 
         try:
             response = requests.get(image_url, timeout=REQUEST_TIMEOUT)
@@ -214,10 +216,6 @@ class Ticker(Frame):
                 icon = source_image.convert('RGBA')
                 icon.thumbnail((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
                 self._icons[symbol] = icon.copy()
-
-                if icon_path.exists():
-                    logger.info(f'Loaded remote icon for {symbol} without disk cache')
-                    return
 
                 REMOTE_ICON_DIR.mkdir(parents=True, exist_ok=True)
                 icon.save(icon_path)
