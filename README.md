@@ -32,6 +32,7 @@ You can customize the application by adding any of the following settings to you
 | LED\_PWM\_LSB\_NANOSECONDS | 80 | Matrix PWM timing. Lower values can reduce flicker if the panel remains stable. |
 | LED\_SLOWDOWN\_GPIO | 1 | RGB matrix GPIO slowdown setting. Increase only if the panel shows corrupted pixels. |
 | LED\_SHOW\_REFRESH | false | Print matrix refresh diagnostics for short troubleshooting runs. Leave off for normal use. |
+| ICON\_CACHE\_DIR | /tmp/crypto-ticker-icons | Where fetched API coin icons are cached. |
 | CMC\_API\_KEY | | The CoinMarketCap API key, required if you specified API=coinmarketcap. |
 | SANDBOX | | Used for CoinMarketCap only. Set SANDBOX=false if you're developing and want to use the sandbox API. |
 
