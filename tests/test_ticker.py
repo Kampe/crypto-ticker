@@ -1,7 +1,11 @@
 import importlib
 import os
+import tempfile
 import unittest
-from unittest.mock import patch
+from io import BytesIO
+from unittest.mock import MagicMock, patch
+
+from PIL import Image
 
 from tests.support import install_fake_requests_modules, install_fake_rgbmatrix_module
 
@@ -61,6 +65,35 @@ class TickerTests(unittest.TestCase):
                         self.assertEqual(app.price_data, updated_data)
 
         self.assertEqual(SequencedAPI.instances[0].fetch_calls, 3)
+
+    def test_remote_icon_replaces_builtin_once(self):
+        app = ticker.Ticker.__new__(ticker.Ticker)
+        app._icons = {'btc': Image.new('RGBA', (12, 12), (1, 2, 3, 255))}
+        app._remote_icon_attempted = set()
+
+        remote_image = Image.new('RGBA', (64, 64), (255, 140, 0, 255))
+        payload = BytesIO()
+        remote_image.save(payload, format='PNG')
+
+        response = MagicMock()
+        response.content = payload.getvalue()
+        response.raise_for_status.return_value = None
+
+        with tempfile.TemporaryDirectory() as icon_dir:
+            with patch.object(ticker, 'ICON_DIR', ticker.Path(icon_dir)):
+                with patch.object(
+                    ticker.requests, 'get', return_value=response, create=True
+                ) as get:
+                    app._cache_remote_icon(
+                        {'symbol': 'btc', 'image_url': 'https://example.test/btc.png'}
+                    )
+                    app._cache_remote_icon(
+                        {'symbol': 'btc', 'image_url': 'https://example.test/btc.png'}
+                    )
+
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual(app._icons['btc'].size, (12, 12))
+        self.assertEqual(app._icons['btc'].getpixel((5, 5)), (255, 140, 0, 255))
 
 
 if __name__ == '__main__':

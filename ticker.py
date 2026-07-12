@@ -69,6 +69,7 @@ class Ticker(Frame):
 
         self._fonts = {}
         self._icons = {}
+        self._remote_icon_attempted = set()
         self._canvas = None
 
         super().__init__(*args, **kwargs)
@@ -196,12 +197,11 @@ class Ticker(Frame):
     def _cache_remote_icon(self, asset):
         symbol = asset.get('symbol', '').lower()
         image_url = asset.get('image_url')
-        if not symbol or symbol in self._icons or not image_url:
+        if not symbol or not image_url or symbol in self._remote_icon_attempted:
             return
+        self._remote_icon_attempted.add(symbol)
 
         icon_path = ICON_DIR / f'{symbol}.png'
-        if icon_path.exists():
-            return
 
         try:
             response = requests.get(image_url, timeout=REQUEST_TIMEOUT)
@@ -211,7 +211,7 @@ class Ticker(Frame):
                 icon.thumbnail((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
                 self._icons[symbol] = icon.copy()
 
-                if not os.access(str(ICON_DIR), os.W_OK):
+                if icon_path.exists() or not os.access(str(ICON_DIR), os.W_OK):
                     logger.info(f'Loaded remote icon for {symbol} without disk cache')
                     return
 
