@@ -24,7 +24,6 @@ You can customize the application by adding any of the following settings to you
 | API | coingecko | The API you want to use to fetch price data. Currently supported APIs are "coingecko" and "coinmarketcap". |
 | REFRESH_RATE | 300 | How often to refresh price data, in seconds. |
 | SLEEP | 3 | How long each asset price displays before rotating, in seconds. |
-| OVERVIEW_EVERY | 1 | Show the compact market overview every N full asset cycles. |
 | RETRY_DELAY | 30 or REFRESH_RATE if lower | How long to wait before retrying a failed refresh while stale data remains on screen. |
 | COINGECKO\_API\_KEY | | Optional CoinGecko API key. Recommended for the 24h market chart requests. |
 | COINGECKO\_API\_TIER | demo | CoinGecko key type. Use "demo" for `x-cg-demo-api-key` or "pro" for `x-cg-pro-api-key`. |

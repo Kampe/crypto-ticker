@@ -65,8 +65,6 @@ class Ticker(Frame):
         self.retry_delay = self.get_positive_int_setting(
             'RETRY_DELAY', min(30, self.refresh_rate)
         )
-        self.overview_every = self.get_positive_int_setting('OVERVIEW_EVERY', 1)
-
         self._fonts = {}
         self._icons = {}
         self._remote_icon_attempted = set()
@@ -376,40 +374,6 @@ class Ticker(Frame):
         self._text(canvas, font_name, 2, y, price_color, price)
         return canvas
 
-    def get_overview_canvas(self, price_data, frame_index=0):
-        image = self._background(price_data[0] if price_data else None, frame_index)
-        draw = ImageDraw.Draw(image)
-
-        cols = 3
-        tile_w = self.width // cols
-        tile_h = self.height // 2
-        for index, asset in enumerate(price_data[:6]):
-            col = index % cols
-            row = index // cols
-            x = col * tile_w
-            y = row * tile_h
-            symbol = asset['symbol'].lower()[:4]
-            change = self._change_value(asset)
-            primary, secondary = self._asset_colors(symbol)
-            color = (34, 255, 136) if change >= 0 else (255, 62, 105)
-            draw.rectangle((x, y, x + tile_w - 1, y + tile_h - 1), outline=dim(secondary, 0.45))
-
-        canvas = self._base_canvas_from_image(image)
-        for index, asset in enumerate(price_data[:6]):
-            col = index % cols
-            row = index // cols
-            x = col * tile_w
-            y = row * tile_h
-            symbol = asset['symbol'].lower()[:4]
-            change = self._change_value(asset)
-            primary, _secondary = self._asset_colors(symbol)
-            color = (34, 255, 136) if change >= 0 else (255, 62, 105)
-            self._text(canvas, 'micro', x + 1, y + 7, mix(primary, (255, 255, 255), 0.35), symbol)
-            self._text(canvas, 'micro', x + 1, y + 15, color, f'{change:+.1f}')
-
-        self._text(canvas, 'micro', self.width - 20, self.height - 1, (120, 220, 255), 'LIVE')
-        return canvas
-
     def get_error_canvas(self, frame_index=0):
         image = self._background(None, frame_index)
         draw = ImageDraw.Draw(image)
@@ -426,10 +390,6 @@ class Ticker(Frame):
     def _show_asset(self, asset):
         self._show_canvas(self.get_ticker_canvas(asset, 0))
         time.sleep(self.sleep)
-
-    def _show_overview(self, price_data):
-        self._show_canvas(self.get_overview_canvas(price_data, 0))
-        time.sleep(min(2, self.sleep))
 
     def _show_error(self):
         self._show_canvas(self.get_error_canvas(0))
@@ -451,7 +411,6 @@ class Ticker(Frame):
         self._load_fonts()
         self._load_icons()
 
-        cycle_count = 0
         while True:
             try:
                 data = self.price_data
@@ -460,9 +419,6 @@ class Ticker(Frame):
                 else:
                     for asset in data:
                         self._show_asset(asset)
-                    cycle_count += 1
-                    if self.overview_every and cycle_count % self.overview_every == 0:
-                        self._show_overview(data)
             except Exception as e:
                 logger.error(f'Error rendering frame: {e}')
                 try:
