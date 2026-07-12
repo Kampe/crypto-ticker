@@ -20,7 +20,7 @@ if not logger.handlers:
 logger.propagate = False
 
 # Shared timeout for all HTTP requests (connect, read) in seconds
-REQUEST_TIMEOUT = (5, 15)
+REQUEST_TIMEOUT = (4, 8)
 
 API_CLASS_MAP = {'coinmarketcap': 'CoinMarketCap', 'coingecko': 'CoinGecko'}
 
@@ -29,9 +29,9 @@ def _build_session():
     """Build a requests Session with retry logic and connection pooling."""
     session = requests.Session()
     retry_kwargs = dict(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
+        total=1,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504],
     )
     try:
         retries = Retry(allowed_methods=["GET"], **retry_kwargs)
@@ -199,8 +199,9 @@ class CoinGecko(PriceAPI):
         self.api_tier = os.environ.get('COINGECKO_API_TIER', 'demo').lower()
         self.api_url = self.PRO_API if self.api_tier == 'pro' else self.DEMO_API
         self.headers = self._get_headers()
-        self.symbol_map = {}
-        self._fetch_coin_list()
+        self.symbol_map = self._configured_symbol_map()
+        if len(self.symbol_map) < len(self._requested_assets):
+            self._fetch_coin_list()
 
     def _get_headers(self):
         if not self.api_key:
@@ -211,6 +212,13 @@ class CoinGecko(PriceAPI):
             else 'x-cg-demo-api-key'
         )
         return {header: self.api_key}
+
+    def _configured_symbol_map(self):
+        return {
+            coin_id: symbol
+            for symbol, coin_id in self._requested_assets
+            if coin_id is not None
+        }
 
     def _fetch_coin_list(self):
         """Fetch the CoinGecko coin list and build a symbol -> id mapping."""
@@ -227,10 +235,13 @@ class CoinGecko(PriceAPI):
             return
 
         symbols = self.get_symbols()
-        symbol_map = {}
+        symbol_map = dict(self.symbol_map)
+        resolved_symbols = set(symbol_map.values())
 
         for coin in coins:
             symbol = coin['symbol']
+            if symbol in resolved_symbols:
+                continue
             name = self.get_name_for_symbol(symbol)
             if name is not None and name != coin['id']:
                 continue
@@ -268,7 +279,7 @@ class CoinGecko(PriceAPI):
                 params={
                     'ids': ','.join(self.symbol_map.keys()),
                     'vs_currency': self.currency,
-                    'sparkline': 'false',
+                    'sparkline': 'true',
                     'price_change_percentage': '24h',
                 },
                 headers=self.headers,
@@ -303,38 +314,20 @@ class CoinGecko(PriceAPI):
                     change_24h=change_24h,
                     change_value=change_value,
                     image_url=coin_data.get('image'),
-                    history_24h=self._fetch_market_chart(coin_id),
+                    history_24h=self._get_sparkline_24h(coin_data),
                 )
             )
 
         return self.order_price_data(price_data)
 
-    def _fetch_market_chart(self, coin_id):
-        """Return explicit 24h price history as floats, or [] on failure."""
-        try:
-            response = self.session.get(
-                f'{self.api_url}/coins/{coin_id}/market_chart',
-                params={
-                    'vs_currency': self.currency,
-                    'days': '1',
-                    'precision': 'full',
-                },
-                headers=self.headers,
-                timeout=REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except (requests.RequestException, ValueError) as e:
-            logger.warning(
-                f'CoinGecko market chart request failed for {coin_id}: {e}'
-            )
-            return []
-
+    def _get_sparkline_24h(self, coin_data):
+        """Return the most recent 24 sparkline samples from coins/markets."""
         prices = []
-        for point in data.get('prices', []):
+        sparkline = coin_data.get('sparkline_in_7d', {}).get('price', [])
+        for value in sparkline[-24:]:
             try:
-                prices.append(float(point[1]))
-            except (IndexError, TypeError, ValueError):
+                prices.append(float(value))
+            except (TypeError, ValueError):
                 continue
 
         return prices

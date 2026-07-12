@@ -31,6 +31,15 @@ class FakeSession:
 
 
 class CoinGeckoTests(unittest.TestCase):
+    def test_configured_coin_ids_skip_coin_list_fetch(self):
+        session = FakeSession([])
+
+        with patch('price_apis._build_session', return_value=session):
+            api = CoinGecko(symbols='btc:bitcoin,eth:ethereum')
+
+        self.assertEqual(api.symbol_map, {'bitcoin': 'btc', 'ethereum': 'eth'})
+        self.assertEqual(session.calls, [])
+
     def test_fetch_price_data_returns_assets_in_requested_order(self):
         session = FakeSession(
             [
@@ -47,17 +56,17 @@ class CoinGeckoTests(unittest.TestCase):
                             'current_price': 95000,
                             'price_change_percentage_24h': -1.2,
                             'image': 'https://example.test/btc.png',
+                            'sparkline_in_7d': {'price': [93000, 94000, 95000]},
                         },
                         {
                             'id': 'ethereum',
                             'current_price': 3200,
                             'price_change_percentage_24h': 3.4,
                             'image': 'https://example.test/eth.png',
+                            'sparkline_in_7d': {'price': [3000, 3100, 3200]},
                         },
                     ]
                 ),
-                FakeResponse({'prices': [[1, 94000], [2, 95000]]}),
-                FakeResponse({'prices': [[1, 3100], [2, 3200]]}),
             ]
         )
 
@@ -67,7 +76,7 @@ class CoinGeckoTests(unittest.TestCase):
 
         self.assertEqual([asset['symbol'] for asset in price_data], ['eth', 'btc'])
         self.assertEqual(price_data[0]['image_url'], 'https://example.test/eth.png')
-        self.assertEqual(price_data[0]['history_24h'], [3100.0, 3200.0])
+        self.assertEqual(price_data[0]['history_24h'], [3000.0, 3100.0, 3200.0])
 
     def test_uses_demo_api_key_header_when_configured(self):
         session = FakeSession([FakeResponse([])])

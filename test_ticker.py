@@ -135,7 +135,7 @@ class TestBuildSession(unittest.TestCase):
     def test_has_retry(self):
         session = _build_session()
         adapter = session.get_adapter('https://example.com')
-        self.assertEqual(adapter.max_retries.total, 3)
+        self.assertEqual(adapter.max_retries.total, 1)
 
 
 class TestCoinGeckoFetch(unittest.TestCase):
@@ -164,21 +164,17 @@ class TestCoinGeckoFetch(unittest.TestCase):
                 'id': 'bitcoin',
                 'current_price': 67123.45,
                 'price_change_percentage_24h': 2.5,
+                'sparkline_in_7d': {'price': [67000, 67123.45]},
             },
             {
                 'id': 'ethereum',
                 'current_price': 3456.78,
                 'price_change_percentage_24h': -1.2,
+                'sparkline_in_7d': {'price': [3500, 3456.78]},
             },
         ]
         price_resp.raise_for_status = MagicMock()
-        btc_chart_resp = MagicMock()
-        btc_chart_resp.json.return_value = {'prices': [[1, 67000], [2, 67123.45]]}
-        btc_chart_resp.raise_for_status = MagicMock()
-        eth_chart_resp = MagicMock()
-        eth_chart_resp.json.return_value = {'prices': [[1, 3500], [2, 3456.78]]}
-        eth_chart_resp.raise_for_status = MagicMock()
-        mock_session.get.side_effect = [price_resp, btc_chart_resp, eth_chart_resp]
+        mock_session.get.return_value = price_resp
 
         data = api.fetch_price_data()
         self.assertEqual(len(data), 2)
@@ -354,6 +350,11 @@ class TestTickerIntegration(unittest.TestCase):
         canvas = ticker.get_error_canvas()
         self.assertIsInstance(canvas, MockCanvas)
 
+    def test_compact_change_keeps_top_right_label_short(self):
+        ticker, _ = self._make_ticker()
+        self.assertEqual(ticker._compact_change(2.5), '+2')
+        self.assertEqual(ticker._compact_change(-0.5), '-.5')
+
     def test_price_data_caching(self):
         ticker, mock_session = self._make_ticker()
 
@@ -363,18 +364,17 @@ class TestTickerIntegration(unittest.TestCase):
                 'id': 'bitcoin',
                 'current_price': 67000,
                 'price_change_percentage_24h': 2.5,
+                'sparkline_in_7d': {'price': [66000, 67000]},
             },
             {
                 'id': 'ethereum',
                 'current_price': 3400,
                 'price_change_percentage_24h': -1.0,
+                'sparkline_in_7d': {'price': [3450, 3400]},
             },
         ]
         price_resp.raise_for_status = MagicMock()
-        chart_resp = MagicMock()
-        chart_resp.json.return_value = {'prices': [[1, 66000], [2, 67000]]}
-        chart_resp.raise_for_status = MagicMock()
-        mock_session.get.side_effect = [price_resp, chart_resp, chart_resp]
+        mock_session.get.return_value = price_resp
 
         data1 = ticker.price_data
         self.assertIsNotNone(data1)
@@ -391,13 +391,11 @@ class TestTickerIntegration(unittest.TestCase):
                 'id': 'bitcoin',
                 'current_price': 67000,
                 'price_change_percentage_24h': 2.5,
+                'sparkline_in_7d': {'price': [66000, 67000]},
             }
         ]
         price_resp.raise_for_status = MagicMock()
-        chart_resp = MagicMock()
-        chart_resp.json.return_value = {'prices': [[1, 66000], [2, 67000]]}
-        chart_resp.raise_for_status = MagicMock()
-        mock_session.get.side_effect = [price_resp, chart_resp]
+        mock_session.get.return_value = price_resp
 
         data1 = ticker.price_data
         self.assertIsNotNone(data1)

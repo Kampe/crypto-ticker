@@ -28,6 +28,7 @@ ASSET_COLORS = {
     'cvx': ((34, 197, 94), (163, 230, 53)),
     'crv': ((236, 72, 153), (96, 165, 250)),
     'blur': ((59, 130, 246), (244, 114, 182)),
+    'ape': ((0, 190, 255), (20, 70, 180)),
     'sol': ((20, 241, 149), (153, 69, 255)),
     'doge': ((196, 154, 54), (255, 236, 179)),
     'ada': ((0, 122, 255), (125, 211, 252)),
@@ -209,7 +210,7 @@ class Ticker(Frame):
                 icon.thumbnail((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
                 self._icons[symbol] = icon.copy()
 
-                if icon_path.exists() or not os.access(str(ICON_DIR), os.W_OK):
+                if icon_path.exists():
                     logger.info(f'Loaded remote icon for {symbol} without disk cache')
                     return
 
@@ -238,6 +239,13 @@ class Ticker(Frame):
             return float(asset.get('change_24h', '0').replace('%', ''))
         except ValueError:
             return 0.0
+
+    def _compact_change(self, change_value):
+        if abs(change_value) < 1:
+            text = f'{change_value:+.1f}'
+        else:
+            text = f'{change_value:+.0f}'
+        return text.replace('+0.', '+.').replace('-0.', '-.')
 
     def _font_width(self, font, text):
         return sum(font.CharacterWidth(ord(char)) for char in text)
@@ -289,7 +297,7 @@ class Ticker(Frame):
         low = min(values)
         high = max(values)
         span = high - low or max(high, 1.0) * 0.001
-        line_color = (22, 120, 62) if values[-1] >= values[0] else (150, 28, 52)
+        line_color = (36, 210, 105) if values[-1] >= values[0] else (225, 48, 82)
 
         chart_values = self._bucket_series(values, max(2, right - left + 1))
         points = []
@@ -303,7 +311,7 @@ class Ticker(Frame):
             draw.line(points, fill=line_color)
 
         last_x, last_y = points[-1]
-        draw.point((last_x, last_y), fill=mix(line_color, (255, 255, 255), 0.18))
+        draw.point((last_x, last_y), fill=mix(line_color, (255, 255, 255), 0.25))
 
     def _bucket_series(self, values, bucket_count):
         if len(values) <= bucket_count:
@@ -352,8 +360,8 @@ class Ticker(Frame):
         self._draw_market_meter(image, asset)
         canvas = self._base_canvas_from_image(image)
 
-        change = asset.get('change_24h', '0.0%')
         change_value = self._change_value(asset)
+        change = self._compact_change(change_value)
         change_color = (40, 190, 120) if change_value >= 0 else (210, 55, 90)
         symbol_color = (205, 196, 120)
         price_color = (185, 210, 180)
@@ -365,7 +373,7 @@ class Ticker(Frame):
             self._text(canvas, 'price', 16, 11, symbol_color, symbol[:6])
 
         change_width = self._font_width(self._fonts['micro'], change)
-        change_x = max(30, self.width - change_width - 2)
+        change_x = max(45, self.width - change_width - 1)
         self._text(canvas, 'micro', change_x, 7, change_color, change)
 
         price = asset['price']
@@ -377,9 +385,10 @@ class Ticker(Frame):
     def get_error_canvas(self, frame_index=0):
         image = self._background(None, frame_index)
         draw = ImageDraw.Draw(image)
-        draw.rectangle((3, 6, self.width - 4, self.height - 7), outline=(255, 62, 105), fill=(24, 4, 12))
+        draw.rectangle((3, 6, self.width - 4, self.height - 7), outline=(190, 150, 40), fill=(18, 12, 4))
         canvas = self._base_canvas_from_image(image)
-        self._text(canvas, 'symbol', 10, 20, (255, 62, 105), 'ERROR')
+        self._text(canvas, 'symbol', 12, 19, (210, 170, 55), 'WAIT')
+        self._text(canvas, 'micro', 17, 27, (120, 100, 50), 'API')
         return canvas
 
     def _show_canvas(self, canvas):

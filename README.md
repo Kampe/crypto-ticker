@@ -41,7 +41,7 @@ SYMBOLS=btc,eth,ltc,xrp
 API=coingecko
 ```
 
-CoinGecko charts use the explicit `coins/{id}/market_chart` endpoint with `days=1`, so each asset screen can draw the last 24 hours across the LED panel background. The line is green when the 24h chart ends above its first point and red when it ends below.
+CoinGecko charts use the `coins/markets` sparkline data and render the most recent 24 samples across the LED panel background. The line is green when the chart ends above its first point and red when it ends below.
 
 Note: Some symbols are ambiguous. For example, `uni` currently corresponds to three different currencies in the CoinGecko API. To specify the
 currency or token you want (with CoinGecko only), you can use the following:
