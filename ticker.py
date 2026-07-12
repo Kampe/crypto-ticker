@@ -5,13 +5,15 @@ import os
 import re
 import time
 from collections import defaultdict, deque
+from io import BytesIO
 from pathlib import Path
 
+import requests
 from PIL import Image, ImageDraw
 
 from frame import Frame
 from rgbmatrix import graphics
-from price_apis import get_api_cls, logger
+from price_apis import REQUEST_TIMEOUT, get_api_cls, logger
 
 BASE_DIR = Path(__file__).resolve().parent
 FONT_DIR = BASE_DIR / 'fonts'
@@ -88,7 +90,7 @@ class Ticker(Frame):
         self._fonts['price_small'] = self._fonts['micro']
 
     def _load_icons(self):
-        """Load all available crypto icons once and cache as RGB PIL images."""
+        """Load all available crypto icons once and cache as PIL images."""
         if not ICON_DIR.is_dir():
             return
         for path in sorted(ICON_DIR.iterdir()):
@@ -97,7 +99,7 @@ class Ticker(Frame):
             symbol = path.stem.lower()
             try:
                 with Image.open(path) as source_image:
-                    icon = source_image.convert('RGB')
+                    icon = source_image.convert('RGBA')
 
                 if icon.width > ICON_SIZE or icon.height > ICON_SIZE:
                     icon = icon.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
@@ -132,6 +134,15 @@ class Ticker(Frame):
             return default_value
 
         return parsed_value
+
+    def _numeric_series(self, values):
+        series = []
+        for value in values or []:
+            try:
+                series.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        return series
 
     def get_symbols(self):
         symbols = os.environ.get('SYMBOLS', 'btc,eth')
@@ -180,6 +191,35 @@ class Ticker(Frame):
                 value = self._parse_price(asset.get('price', ''))
             if value is not None:
                 self._price_history[asset['symbol'].lower()].append(float(value))
+            self._cache_remote_icon(asset)
+
+    def _cache_remote_icon(self, asset):
+        symbol = asset.get('symbol', '').lower()
+        image_url = asset.get('image_url')
+        if not symbol or symbol in self._icons or not image_url:
+            return
+
+        icon_path = ICON_DIR / f'{symbol}.png'
+        if icon_path.exists():
+            return
+
+        try:
+            response = requests.get(image_url, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            with Image.open(BytesIO(response.content)) as source_image:
+                icon = source_image.convert('RGBA')
+                icon.thumbnail((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
+                self._icons[symbol] = icon.copy()
+
+                if not os.access(str(ICON_DIR), os.W_OK):
+                    logger.info(f'Loaded remote icon for {symbol} without disk cache')
+                    return
+
+                ICON_DIR.mkdir(parents=True, exist_ok=True)
+                icon.save(icon_path)
+                logger.info(f'Cached icon for {symbol}')
+        except Exception as e:
+            logger.warning(f'Failed to cache icon for {symbol}: {e}')
 
     def _parse_price(self, formatted_price):
         match = re.search(r'[-+]?[0-9][0-9,]*(?:\.[0-9]+)?', formatted_price)
@@ -238,23 +278,23 @@ class Ticker(Frame):
 
         icon = self._icons.get(symbol)
         if icon:
-            image.paste(icon, (1, 1))
+            image.paste(icon, (1, 1), icon if icon.mode == 'RGBA' else None)
         else:
             # Small monogram fallback; real symbol text is drawn with rgbmatrix later.
             draw.rectangle((4, 4, 10, 10), outline=dim(secondary, 0.9), fill=dim(primary, 0.45))
 
     def _draw_sparkline(self, image, asset, frame_index=0):
         symbol = asset['symbol'].lower()
-        values = list(self._price_history[symbol])
+        values = self._numeric_series(asset.get('history_24h'))
         if len(values) < 2:
-            values = []
+            values = list(self._price_history[symbol])
 
         primary, secondary = self._asset_colors(symbol)
         draw = ImageDraw.Draw(image)
-        left = 35
-        top = 15
-        right = self.width - 2
-        bottom = self.height - 3
+        left = 0
+        top = 4
+        right = self.width - 1
+        bottom = self.height - 1
         if len(values) < 2:
             y = (top + bottom) // 2
             draw.line((left, y, right, y), fill=dim(secondary, 0.38))
@@ -268,13 +308,13 @@ class Ticker(Frame):
         shadow_color = dim(line_color, 0.25)
 
         points = []
-        for idx, value in enumerate(values[-HISTORY_POINTS:]):
-            t = idx / float(max(1, min(len(values), HISTORY_POINTS) - 1))
+        for idx, value in enumerate(values):
+            t = idx / float(max(1, len(values) - 1))
             x = int(left + t * (right - left))
             y = int(bottom - ((value - low) / span) * (bottom - top))
             points.append((x, y))
 
-        for offset, color in ((1, shadow_color), (0, line_color)):
+        for offset, color in ((2, dim(line_color, 0.15)), (1, shadow_color), (0, line_color)):
             shifted = [(x, y + offset) for x, y in points]
             if len(shifted) > 1:
                 draw.line(shifted, fill=color)
@@ -309,8 +349,8 @@ class Ticker(Frame):
 
     def get_ticker_canvas(self, asset, frame_index=0):
         image = self._background(asset, frame_index)
-        self._draw_icon_badge(image, asset, frame_index)
         self._draw_sparkline(image, asset, frame_index)
+        self._draw_icon_badge(image, asset, frame_index)
         self._draw_market_meter(image, asset)
         canvas = self._base_canvas_from_image(image)
 

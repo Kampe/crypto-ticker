@@ -152,7 +152,7 @@ class CoinMarketCap(PriceAPI):
                 f'{self.api_url}/v1/cryptocurrency/quotes/latest',
                 params={'symbol': ','.join(self.get_symbols())},
                 headers={'X-CMC_PRO_API_KEY': self.api_key},
-                timeout=REQUEST_TIMEOUT,
+                timeout=(3, 5),
             )
             response.raise_for_status()
         except requests.RequestException as e:
@@ -187,20 +187,38 @@ class CoinMarketCap(PriceAPI):
 
         return self.order_price_data(price_data)
 
-
 class CoinGecko(PriceAPI):
-    API = 'https://api.coingecko.com/api/v3'
+    DEMO_API = 'https://api.coingecko.com/api/v3'
+    PRO_API = 'https://pro-api.coingecko.com/api/v3'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.api_key = os.environ.get('COINGECKO_API_KEY') or os.environ.get(
+            'CG_API_KEY'
+        )
+        self.api_tier = os.environ.get('COINGECKO_API_TIER', 'demo').lower()
+        self.api_url = self.PRO_API if self.api_tier == 'pro' else self.DEMO_API
+        self.headers = self._get_headers()
         self.symbol_map = {}
         self._fetch_coin_list()
+
+    def _get_headers(self):
+        if not self.api_key:
+            return {}
+        header = (
+            'x-cg-pro-api-key'
+            if self.api_tier == 'pro'
+            else 'x-cg-demo-api-key'
+        )
+        return {header: self.api_key}
 
     def _fetch_coin_list(self):
         """Fetch the CoinGecko coin list and build a symbol -> id mapping."""
         try:
             response = self.session.get(
-                f'{self.API}/coins/list', timeout=REQUEST_TIMEOUT
+                f'{self.api_url}/coins/list',
+                headers=self.headers,
+                timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()
             coins = response.json()
@@ -246,12 +264,14 @@ class CoinGecko(PriceAPI):
 
         try:
             response = self.session.get(
-                f'{self.API}/simple/price',
+                f'{self.api_url}/coins/markets',
                 params={
                     'ids': ','.join(self.symbol_map.keys()),
-                    'vs_currencies': self.currency,
-                    'include_24hr_change': 'true',
+                    'vs_currency': self.currency,
+                    'sparkline': 'false',
+                    'price_change_percentage': '24h',
                 },
+                headers=self.headers,
                 timeout=REQUEST_TIMEOUT,
             )
             response.raise_for_status()
@@ -261,14 +281,14 @@ class CoinGecko(PriceAPI):
             return None
 
         cur = self.currency
-        cur_change = f"{cur}_24h_change"
         cur_symbol = "\u20ac" if cur == "eur" else "$"
 
         price_data = []
-        for coin_id, coin_data in data.items():
+        for coin_data in data:
+            coin_id = coin_data.get('id')
             try:
-                price_value = float(coin_data[cur])
-                change_value = float(coin_data[cur_change])
+                price_value = float(coin_data['current_price'])
+                change_value = float(coin_data['price_change_percentage_24h'])
                 price = f"{cur_symbol}{price_value:,.2f}"
                 change_24h = f"{change_value:.1f}%"
             except (KeyError, TypeError):
@@ -282,7 +302,39 @@ class CoinGecko(PriceAPI):
                     price_value=price_value,
                     change_24h=change_24h,
                     change_value=change_value,
+                    image_url=coin_data.get('image'),
+                    history_24h=self._fetch_market_chart(coin_id),
                 )
             )
 
         return self.order_price_data(price_data)
+
+    def _fetch_market_chart(self, coin_id):
+        """Return explicit 24h price history as floats, or [] on failure."""
+        try:
+            response = self.session.get(
+                f'{self.api_url}/coins/{coin_id}/market_chart',
+                params={
+                    'vs_currency': self.currency,
+                    'days': '1',
+                    'precision': 'full',
+                },
+                headers=self.headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                f'CoinGecko market chart request failed for {coin_id}: {e}'
+            )
+            return []
+
+        prices = []
+        for point in data.get('prices', []):
+            try:
+                prices.append(float(point[1]))
+            except (IndexError, TypeError, ValueError):
+                continue
+
+        return prices

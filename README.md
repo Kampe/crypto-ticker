@@ -6,7 +6,7 @@ Requires:
 
   * Adafruit 64x32 LED Matrix Panel
   * Raspberry Pi Zero WH
-  * CoinMarketCap API Account
+  * CoinGecko or CoinMarketCap API account
 
 See the Howchoo guide for installation and configuration instructions:
 
@@ -26,6 +26,8 @@ You can customize the application by adding any of the following settings to you
 | SLEEP | 3 | How long each asset price displays before rotating, in seconds. |
 | OVERVIEW_EVERY | 1 | Show the compact market overview every N full asset cycles. |
 | RETRY_DELAY | 30 or REFRESH_RATE if lower | How long to wait before retrying a failed refresh while stale data remains on screen. |
+| COINGECKO\_API\_KEY | | Optional CoinGecko API key. Recommended for the 24h market chart requests. |
+| COINGECKO\_API\_TIER | demo | CoinGecko key type. Use "demo" for `x-cg-demo-api-key` or "pro" for `x-cg-pro-api-key`. |
 | CMC\_API\_KEY | | The CoinMarketCap API key, required if you specified API=coinmarketcap. |
 | SANDBOX | | Used for CoinMarketCap only. Set SANDBOX=false if you're developing and want to use the sandbox API. |
 
@@ -35,6 +37,8 @@ Example:
 SYMBOLS=btc,eth,ltc,xrp
 API=coingecko
 ```
+
+CoinGecko charts use the explicit `coins/{id}/market_chart` endpoint with `days=1`, so each asset screen can draw the last 24 hours across the LED panel background. The line is green when the 24h chart ends above its first point and red when it ends below.
 
 Note: Some symbols are ambiguous. For example, `uni` currently corresponds to three different currencies in the CoinGecko API. To specify the
 currency or token you want (with CoinGecko only), you can use the following:
