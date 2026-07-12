@@ -1,8 +1,31 @@
 import sys
 import time
+import os
 
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
 from price_apis import logger
+
+
+def _get_int_setting(name, default):
+    raw_value = os.environ.get(name)
+    if raw_value in (None, ''):
+        return default
+    try:
+        parsed_value = int(raw_value)
+    except ValueError:
+        logger.warning('Invalid %s=%r. Falling back to %s.', name, raw_value, default)
+        return default
+    if parsed_value < 0:
+        logger.warning('%s must be zero or greater. Falling back to %s.', name, default)
+        return default
+    return parsed_value
+
+
+def _get_bool_setting(name, default):
+    raw_value = os.environ.get(name)
+    if raw_value in (None, ''):
+        return default
+    return raw_value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 class Frame:
@@ -12,14 +35,26 @@ class Frame:
         self.args['led_cols'] = kwargs.get('led_cols', 64)
         self.args['led_chain'] = kwargs.get('led_chain', 1)
         self.args['led_parallel'] = kwargs.get('led_parallel', 1)
-        self.args['led_pwm_bits'] = kwargs.get('led_pwm_bits', 11)
-        self.args['led_brightness'] = kwargs.get('led_brightness', 100)
+        self.args['led_pwm_bits'] = kwargs.get(
+            'led_pwm_bits', _get_int_setting('LED_PWM_BITS', 7)
+        )
+        self.args['led_brightness'] = kwargs.get(
+            'led_brightness', _get_int_setting('LED_BRIGHTNESS', 60)
+        )
         self.args['led_gpio_mapping'] = kwargs.get('led_gpio_mapping', 'adafruit-hat')
         self.args['led_scan_mode'] = kwargs.get('led_scan_mode', 1)
-        self.args['led_pwm_lsb_nanoseconds'] = kwargs.get('led_pwm_lsb_nanoseconds', 130)
+        self.args['led_pwm_lsb_nanoseconds'] = kwargs.get(
+            'led_pwm_lsb_nanoseconds',
+            _get_int_setting('LED_PWM_LSB_NANOSECONDS', 100),
+        )
         self.args['led_show_refresh'] = kwargs.get('led_show_refresh', False)
-        self.args['led_slowdown_gpio'] = kwargs.get('led_slowdown_gpio', 1)
-        self.args['led_no_hardware_pulse'] = kwargs.get('led_no_hardware_pulse', False)
+        self.args['led_slowdown_gpio'] = kwargs.get(
+            'led_slowdown_gpio', _get_int_setting('LED_SLOWDOWN_GPIO', 1)
+        )
+        self.args['led_no_hardware_pulse'] = kwargs.get(
+            'led_no_hardware_pulse',
+            _get_bool_setting('LED_NO_HARDWARE_PULSE', False),
+        )
         self.args['led_rgb_sequence'] = kwargs.get('led_rgb_sequence', 'RGB')
         self.args['led_pixel_mapper'] = kwargs.get('led_pixel_mapper', '')
         self.args['led_row_addr_type'] = kwargs.get('led_row_addr_type', 0)

@@ -255,19 +255,8 @@ class Ticker(Frame):
         )
 
     def _background(self, asset, frame_index=0):
-        """Draw a calm low-cost background as a PIL image."""
-        symbol = asset['symbol'].lower() if asset else 'market'
-        primary, secondary = self._asset_colors(symbol)
-        image = Image.new('RGB', (self.width, self.height), (1, 3, 8))
-        draw = ImageDraw.Draw(image)
-
-        for y in range(self.height):
-            t = y / float(max(1, self.height - 1))
-            color = mix(dim(primary, 0.11), dim(secondary, 0.18), t)
-            draw.line((0, y, self.width, y), fill=color)
-
-        draw.line((0, self.height - 1, self.width, self.height - 1), fill=dim(secondary, 0.18))
-        return image
+        """Draw an unlit background to minimize LED scan artifacts."""
+        return Image.new('RGB', (self.width, self.height), (0, 0, 0))
 
     def _draw_icon_badge(self, image, asset, frame_index=0):
         draw = ImageDraw.Draw(image)
@@ -289,7 +278,7 @@ class Ticker(Frame):
         if len(values) < 2:
             values = list(self._price_history[symbol])
 
-        primary, secondary = self._asset_colors(symbol)
+        _primary, secondary = self._asset_colors(symbol)
         draw = ImageDraw.Draw(image)
         left = 0
         top = 4
@@ -304,29 +293,42 @@ class Ticker(Frame):
         low = min(values)
         high = max(values)
         span = high - low or max(high, 1.0) * 0.001
-        line_color = (34, 255, 136) if values[-1] >= values[0] else (255, 62, 105)
-        shadow_color = dim(line_color, 0.25)
+        line_color = (22, 120, 62) if values[-1] >= values[0] else (150, 28, 52)
 
+        chart_values = self._bucket_series(values, max(2, right - left + 1))
         points = []
-        for idx, value in enumerate(values):
-            t = idx / float(max(1, len(values) - 1))
-            x = int(left + t * (right - left))
+        for idx, value in enumerate(chart_values):
+            t = idx / float(max(1, len(chart_values) - 1))
+            x = int(round(left + t * (right - left)))
             y = int(bottom - ((value - low) / span) * (bottom - top))
             points.append((x, y))
 
-        for offset, color in ((2, dim(line_color, 0.15)), (1, shadow_color), (0, line_color)):
-            shifted = [(x, y + offset) for x, y in points]
-            if len(shifted) > 1:
-                draw.line(shifted, fill=color)
+        if len(points) > 1:
+            draw.line(points, fill=line_color)
 
         last_x, last_y = points[-1]
-        draw.point((last_x, last_y), fill=mix(line_color, (255, 255, 255), 0.35))
+        draw.point((last_x, last_y), fill=mix(line_color, (255, 255, 255), 0.18))
+
+    def _bucket_series(self, values, bucket_count):
+        if len(values) <= bucket_count:
+            return values
+
+        buckets = []
+        value_count = len(values)
+        for bucket in range(bucket_count):
+            start = int(round(bucket * value_count / float(bucket_count)))
+            end = int(round((bucket + 1) * value_count / float(bucket_count)))
+            if end <= start:
+                end = start + 1
+            sample = values[start:end]
+            buckets.append(sum(sample) / float(len(sample)))
+        return buckets
 
     def _draw_market_meter(self, image, asset):
         draw = ImageDraw.Draw(image)
         change = self._change_value(asset)
         positive = change >= 0
-        color = (34, 255, 136) if positive else (255, 55, 95)
+        color = (20, 180, 90) if positive else (190, 35, 70)
         center = self.width - 5
         mid = 10
         height = int(min(8, max(1, abs(change) * 2)))
@@ -356,9 +358,9 @@ class Ticker(Frame):
 
         change = asset.get('change_24h', '0.0%')
         change_value = self._change_value(asset)
-        change_color = (40, 255, 150) if change_value >= 0 else (255, 62, 105)
-        symbol_color = (255, 244, 170)
-        price_color = (235, 255, 225)
+        change_color = (40, 190, 120) if change_value >= 0 else (210, 55, 90)
+        symbol_color = (205, 196, 120)
+        price_color = (185, 210, 180)
 
         symbol = asset['symbol'].lower()
         if len(symbol) <= 4:
