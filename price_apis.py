@@ -168,12 +168,22 @@ class CoinMarketCap(PriceAPI):
         price_data = []
         for symbol, data in items:
             try:
-                price = f"${data['quote']['USD']['price']:,.2f}"
-                change_24h = f"{data['quote']['USD']['percent_change_24h']:.1f}%"
+                price_value = float(data['quote']['USD']['price'])
+                change_value = float(data['quote']['USD']['percent_change_24h'])
+                price = f"${price_value:,.2f}"
+                change_24h = f"{change_value:.1f}%"
             except (KeyError, TypeError) as e:
                 logger.warning(f'Incomplete data for {symbol}: {e}')
                 continue
-            price_data.append(dict(symbol=symbol, price=price, change_24h=change_24h))
+            price_data.append(
+                dict(
+                    symbol=symbol,
+                    price=price,
+                    price_value=price_value,
+                    change_24h=change_24h,
+                    change_value=change_value,
+                )
+            )
 
         return self.order_price_data(price_data)
 
@@ -257,8 +267,10 @@ class CoinGecko(PriceAPI):
         price_data = []
         for coin_id, coin_data in data.items():
             try:
-                price = f"{cur_symbol}{coin_data[cur]:,.2f}"
-                change_24h = f"{coin_data[cur_change]:.1f}%"
+                price_value = float(coin_data[cur])
+                change_value = float(coin_data[cur_change])
+                price = f"{cur_symbol}{price_value:,.2f}"
+                change_24h = f"{change_value:.1f}%"
             except (KeyError, TypeError):
                 logger.warning(f'Incomplete data for {coin_id}: {coin_data}')
                 continue
@@ -267,7 +279,9 @@ class CoinGecko(PriceAPI):
                 dict(
                     symbol=self.symbol_map.get(coin_id, coin_id),
                     price=price,
+                    price_value=price_value,
                     change_24h=change_24h,
+                    change_value=change_value,
                 )
             )
 
